@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Cache-Control" content="no-cache">
+<title>Copy-trade experiment · $52 paper</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--g:#3fb950;--r:#f85149;--y:#d29922;--a:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.banner{background:#3b2300;border:1px solid var(--y);color:#ffd27a;text-align:center;padding:8px 12px;border-radius:8px;font-weight:600;letter-spacing:.3px}
+h1{font-size:24px;margin:16px 0 2px}h2{font-size:17px;margin:0 0 10px}.sub{color:var(--mut);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0}
+.status{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--mut)}.status b{color:var(--fg);font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.m{background:#0d1117;border:1px solid var(--line);border-radius:8px;padding:10px}.m .v{font-size:21px;font-weight:700}.m .l{color:var(--mut);font-size:12px}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.pos{color:var(--g)}.neg{color:var(--r)}a{color:var(--a);text-decoration:none}a:hover{text-decoration:underline}
+.cash{font-size:18px;padding:14px;border-left:4px solid var(--a);background:#0d1117;border-radius:6px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px}.kv div:nth-child(odd){color:var(--mut)}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;word-break:break-all}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600}.pw{background:#12361d;color:var(--g)}.pl{background:#3d1214;color:var(--r)}
+.empty{color:var(--mut);font-style:italic}svg{width:100%;height:auto;display:block}ul{margin:0;padding-left:20px}li{margin:4px 0;color:#c9d1d9}
+.err{background:#3d1214;border:1px solid var(--r);padding:8px 12px;border-radius:8px;display:none;margin-top:10px}
+@media (max-width:600px){.wrap{padding:10px}h1{font-size:20px}.card{padding:12px}.kv{grid-template-columns:1fr}.kv div:nth-child(odd){margin-top:6px}}
+</style>
+</head>
+<body><div class="wrap">
+<div class="banner">PAPER ONLY: pretend money. No real trades, wallets or exchanges are involved.</div>
+<h1>Copy-trade experiment</h1>
+<div class="sub">$52 paper account copying the top weekly Kolscan Solana memecoin trader at 0.25x size</div>
+<div class="card status" id="status">Loading…</div>
+<div class="err" id="err"></div>
+
+<div class="card"><h2>What we're holding now</h2><div id="holdings"></div><div class="sub" id="hupd" style="margin-top:8px"></div></div>
+<div class="card"><h2>Balance vs $52 start</h2><div class="metrics" id="metrics"></div><div id="chart"></div></div>
+<div class="card"><h2>Who we're following and why</h2><div id="following"></div></div>
+<div class="card"><h2>Switch history</h2><div class="tw" id="switches"></div></div>
+<div class="card"><h2>Round trips</h2><div class="sub" id="rtsum"></div><div class="tw" id="rts"></div></div>
+<div class="card"><h2>Trade list</h2><div class="sub">Every paper fill, newest first. Delay = seconds from the trader's transaction to our copy.</div><div class="tw" id="trades"></div></div>
+<div class="card"><h2>Rules and caveats</h2><ul>
+<li>Buys copy 0.25x the trader's USD size, capped at our cash. A buy is skipped if cash is under $0.50.</li>
+<li>When the trader sells a token we hold, we sell our whole position in it straight away.</li>
+<li>Fills use the trader's implied price if we see the trade within 90 s, otherwise the current Jupiter price.</li>
+<li>Two losing round trips in a row: close everything and switch to the next-best weekly trader.</li>
+<li>Ranking comes from Kolscan's public weekly leaderboard, not the FOMO app, so the trader may differ from the original post.</li>
+<li>We poll every ~60 s, so copies lag the trader; memecoin prices move within seconds.</li>
+<li>No fees, slippage or price impact modelled, so real results would be worse.</li>
+<li>The free public Solana feed can lag or miss trades on very busy wallets; trades quoted in tokens other than SOL, USDC or USDT are skipped.</li>
+<li>Prices from Jupiter (fallback DexScreener) are fetched on the box at each push (about every minute). This page re-checks every 60 s; GitHub may take a few minutes to serve a new copy.</li>
+</ul></div>
+<div class="sub" style="text-align:center;margin:18px 0" id="foot"></div>
+</div>
+<script>
+const E=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const SAFE=u=>/^https:\/\//.test(u||"")?E(u):"#";
+const $=id=>document.getElementById(id);
+const money=x=>{x=Number(x||0);return (x<0?"-$":"$")+Math.abs(x).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2})};
+const sm=x=>{x=Number(x||0);return (x>0?"+":"")+money(x)};
+const px=x=>{x=Number(x);if(!x)return "n/a";if(x>=0.01)return "$"+x.toLocaleString("en-GB",{maximumFractionDigits:4,minimumFractionDigits:4});return "$"+x.toFixed(12).replace(/^(0\.0*[1-9]\d{0,3}).*$/,"$1")};
+const qty=x=>Number(x||0).toLocaleString("en-GB",{maximumFractionDigits:2});
+const cls=x=>Number(x)>0?"pos":Number(x)<0?"neg":"";
+function table(cols,rows){if(!rows.length)return '<div class="empty">None yet.</div>';
+ return "<table><thead><tr>"+cols.map(c=>`<th class="${c[1]||""}">${E(c[0])}</th>`).join("")+"</tr></thead><tbody>"+rows.map(r=>"<tr>"+r.map((v,i)=>`<td class="${cols[i][1]||""}">${v}</td>`).join("")+"</tr>").join("")+"</tbody></table>";}
+function hms(s){if(s==null)return "?";const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return `${h}h ${m}m`;}
+function chart(pts,start){if(pts.length<2)return '<div class="empty">Not enough data yet.</div>';
+ const W=900,H=240,P=40,vals=pts.map(p=>p[1]).concat([start]);let lo=Math.min(...vals),hi=Math.max(...vals);if(hi-lo<1){hi+=1;lo=Math.max(0,lo-1);}
+ const x=i=>P+i*(W-P-10)/(pts.length-1),y=v=>H-25-(v-lo)/(hi-lo)*(H-45);
+ const d=pts.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+","+y(p[1]).toFixed(1)).join("");const last=pts[pts.length-1][1];
+ const col=last>start?"#3fb950":last<start?"#f85149":"#58a6ff";let lab="";const n=Math.min(5,pts.length-1);
+ for(let k=0;k<=n;k++){const i=Math.round(k*(pts.length-1)/n);lab+=`<text x="${x(i)}" y="${H-6}" fill="#8b949e" font-size="11" text-anchor="middle">${E(String(pts[i][0]).slice(11,16))}</text>`}
+ return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Balance over time"><line x1="${P}" x2="${W-10}" y1="${y(start)}" y2="${y(start)}" stroke="#d29922" stroke-dasharray="4 4"/>
+ <text x="${W-12}" y="${y(start)-5}" fill="#d29922" font-size="11" text-anchor="end">$${start} start</text>
+ <text x="4" y="${y(hi)+4}" fill="#8b949e" font-size="11">${money(hi)}</text><text x="4" y="${y(lo)+4}" fill="#8b949e" font-size="11">${money(lo)}</text>
+ <path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${lab}</svg><div class="sub">Times in UK time. Balance = cash + tokens valued at the sim's last price.</div>`;}
+function render(s){
+ const st=s.status,f=s.following,ret=(s.equity/s.start_cash-1)*100;
+ const ago=s.pushed_ts?Math.max(0,Math.round(Date.now()/1000-s.pushed_ts)):null;const left=s.end_ts?Math.max(0,Math.round(s.end_ts-Date.now()/1000)):st.seconds_remaining;
+ const alive=st.finished?'<span class="dot" style="background:#8b949e"></span><b>Finished</b>':st.sim_alive?'<span class="dot" style="background:#3fb950"></span><b>Sim running</b> (at last push)':'<span class="dot" style="background:#f85149"></span><b>Sim not running</b>';
+ $("status").innerHTML=`<span>${alive}</span><span>Last poll: <b>${E(st.last_poll_bst)}</b></span><span>Polls: <b>${E(st.polls)}</b></span><span>Data last pushed: <b>${E(s.pushed_uk)}</b>${ago!=null?" ("+(ago<90?ago+" s":Math.round(ago/60)+" min")+" ago)":""}</span><span>Time left: <b>${st.finished?"0h 0m":hms(left)}</b> (ends ${E(st.ends_local)})</span><span>Started: ${E(st.launched_bst)}</span>`;
+ if(s.holdings.length){$("holdings").innerHTML='<div class="tw">'+table([["Token"],["Qty","n"],["Avg entry","n"],["Current price","n"],["Value","n"],["Unrealised P&L","n"],["Copied from"],["Bought (UK)"]],
+  s.holdings.map(h=>[`<a href="${SAFE(h.url)}" target="_blank" rel="noopener noreferrer"><b>${E(h.symbol)}</b></a> <span class="sub">${E(h.name)}</span>`,qty(h.qty),px(h.avg_entry),`${px(h.price)} <span class="sub">${E(h.price_source)}</span>`,money(h.value),
+   `<span class="${cls(h.upnl)}">${sm(h.upnl)} (${(h.upnl_pct>0?"+":"")+h.upnl_pct.toFixed(1)}%)</span>`,E(h.trader),E(h.bought_bst)]))+"</div>";}
+ else $("holdings").innerHTML=`<div class="cash">In cash: <b>${money(s.cash)}</b>, waiting for <b>${E(f.name)}</b> to buy.</div>`;
+ $("hupd").textContent="Last updated: "+s.generated_bst;
+ $("metrics").innerHTML=[[money(s.equity),"Balance now",cls(ret)],[(ret>0?"+":"")+ret.toFixed(2)+"%","vs $"+s.start_cash+" start",cls(ret)],[money(s.cash),"Cash",""],[money(s.positions_value),"Tokens (live price)",""],[String(s.trades.length),"Paper fills",""]]
+  .map(m=>`<div class="m"><div class="v ${m[2]}">${E(m[0])}</div><div class="l">${E(m[1])}</div></div>`).join("");
+ $("chart").innerHTML=chart(s.equity_points,s.start_cash);
+ const wl=f.kolscan_wins!=null?`${f.kolscan_wins} wins / ${f.kolscan_losses} losses`:"n/a";
+ $("following").innerHTML=`<div class="kv"><div>Trader</div><div><b>${E(f.name)}</b> (Kolscan weekly #${E(f.rank)})</div>
+ <div>Why</div><div>${E(f.reason)}; highest-ranked weekly trader not yet dropped</div>
+ <div>Kolscan weekly profit</div><div>${E(Number(f.profit_sol).toLocaleString("en-GB"))} SOL</div><div>Kolscan weekly W/L</div><div>${E(wl)}</div>
+ <div>Wallet</div><div class="mono">${E(f.wallet)}</div><div>Following since</div><div>${E(f.since)}</div>
+ <div>Our results with them</div><div>${E(f.our_round_trips)} round trips, <span class="${cls(f.our_pnl)}">${sm(f.our_pnl)}</span>; ${E(f.consec_losses)} of 2 consecutive losses before switching</div>
+ <div>Links</div><div><a href="${SAFE(f.kolscan_url)}" target="_blank" rel="noopener noreferrer">Kolscan profile</a> · <a href="${SAFE(f.solscan_url)}" target="_blank" rel="noopener noreferrer">Solscan wallet</a></div></div>`;
+ $("switches").innerHTML=table([["Time (UK)"],["Now following"],["Weekly rank"],["Reason"]],s.switches.map(w=>[E(w.time_bst),E(w.to),"#"+E(w.rank),E(w.reason)]));
+ $("rtsum").textContent=`${s.round_trips.length} completed: ${s.rt_wins} wins, ${s.rt_losses} losses`;
+ $("rts").innerHTML=table([["Result"],["Token"],["Opened (UK)"],["Closed (UK)"],["Cost","n"],["Proceeds","n"],["P&L","n"]],s.round_trips.map(r=>[`<span class="pill ${r.pnl_usd>0?"pw":"pl"}">${r.pnl_usd>0?"WIN":"LOSS"}</span>`,E(r.token),E(r.opened_bst),E(r.closed_bst),money(r.cost_usd),money(r.proceeds_usd),`<span class="${cls(r.pnl_usd)}">${sm(r.pnl_usd)}</span>`]));
+ $("trades").innerHTML=table([["Time (UK)"],["Side"],["Token"],["Qty","n"],["Price","n"],["USD","n"],["Trader"],["Trader tx (UK)"],["Delay","n"],["Price source"],["P&L","n"],["Reason"]],
+  s.trades.map(t=>[E(t.time_bst),`<span class="${t.side==="BUY"?"pos":"neg"}">${E(t.side)}</span>`,`<a href="https://dexscreener.com/solana/${encodeURIComponent(t.mint)}" target="_blank" rel="noopener noreferrer">${E(t.token)}</a>`,qty(t.qty),px(t.price_usd),money(t.usd),E(t.trader),E(t.trader_tx_time_bst),t.delay_s?E(t.delay_s)+" s":"-",E(t.price_source),t.pnl_usd?`<span class="${cls(t.pnl_usd)}">${sm(t.pnl_usd)}</span>`:"-",E(t.reason)]));
+ $("foot").textContent=`Data computed on the box and pushed ${s.pushed_uk}. This page re-checks every 60 s. Read-only static view.`;
+ const stale=!st.finished&&ago!=null&&ago>600;$("err").style.display=stale?"block":"none";if(stale)$("err").textContent="Data is more than 10 minutes old: the publisher on the box may be down or GitHub Pages is slow to rebuild.";
+}
+const RAW="https://raw.githubusercontent.com/alexanderirvine7-sys/copytrade-sim/main/data.json";
+let cur=null;
+async function grab(u){try{const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"});if(!r.ok)return null;const s=await r.json();return s&&!s.error?s:null}catch(e){return null}}
+async function load(){const got=(await Promise.all([grab("data.json"),grab(RAW)])).filter(Boolean);
+ if(!got.length){if(!cur){$("err").style.display="block";$("err").textContent="Could not load data.json yet. Will retry.";}return}
+ got.sort((a,b)=>(b.pushed_ts||0)-(a.pushed_ts||0));if(!cur||(got[0].pushed_ts||0)>=(cur.pushed_ts||0))cur=got[0];render(cur);}
+load();setInterval(load,60000);setInterval(()=>{if(cur)render(cur)},30000);
+</script>
+</body></html>
