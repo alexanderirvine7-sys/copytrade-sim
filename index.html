@@ -25,6 +25,7 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;lett
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;word-break:break-all}
 .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600}.pw{background:#12361d;color:var(--g)}.pl{background:#3d1214;color:var(--r)}
 .empty{color:var(--mut);font-style:italic}svg{width:100%;height:auto;display:block}ul{margin:0;padding-left:20px}li{margin:4px 0;color:#c9d1d9}
+.bar{height:10px;background:#0d1117;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:8px 0}.bar>div{height:100%;background:var(--a)}
 .err{background:#3d1214;border:1px solid var(--r);padding:8px 12px;border-radius:8px;display:none;margin-top:10px}
 @media (max-width:600px){.wrap{padding:10px}h1{font-size:20px}.card{padding:12px}.kv{grid-template-columns:1fr}.kv div:nth-child(odd){margin-top:6px}}
 </style>
@@ -32,16 +33,18 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;lett
 <body><div class="wrap">
 <div class="banner">PAPER ONLY: pretend money. No real trades, wallets or exchanges are involved.</div>
 <h1>Copy-trade experiment</h1>
-<div class="sub">$52 paper account copying the top weekly Kolscan Solana memecoin trader at 0.25x size</div>
+<div class="sub">$52 paper account copying the top weekly Kolscan Solana memecoin trader at 0.25x size, run for a month</div>
 <div class="card status" id="status">Loading…</div>
 <div class="err" id="err"></div>
 
+<div class="card"><h2>Month progress</h2><div id="month"></div></div>
 <div class="card"><h2>What we're holding now</h2><div id="holdings"></div><div class="sub" id="hupd" style="margin-top:8px"></div></div>
 <div class="card"><h2>Balance vs $52 start</h2><div class="metrics" id="metrics"></div><div id="chart"></div></div>
+<div class="card"><h2>Daily P&amp;L (UK days)</h2><div class="sub">Balance change per day (cash + tokens at the sim's price; today uses the live price at push time). Realised = closed round trips that day.</div><div class="tw" id="daily"></div></div>
 <div class="card"><h2>Who we're following and why</h2><div id="following"></div></div>
 <div class="card"><h2>Switch history</h2><div class="tw" id="switches"></div></div>
 <div class="card"><h2>Round trips</h2><div class="sub" id="rtsum"></div><div class="tw" id="rts"></div></div>
-<div class="card"><h2>Trade list</h2><div class="sub">Every paper fill, newest first. Delay = seconds from the trader's transaction to our copy.</div><div class="tw" id="trades"></div></div>
+<div class="card"><h2>Trade list</h2><div class="sub">Every paper fill, newest first. Delay = seconds from the trader's transaction to our copy. Price is our execution price after slippage; USD is cash paid (buy) or received after costs (sell). Fills before costs were switched on show "-".</div><div class="tw" id="trades"></div></div>
 <div class="card"><h2>Rules and caveats</h2><ul>
 <li>Buys copy 0.25x the trader's USD size, capped at our cash. A buy is skipped if cash is under $0.50.</li>
 <li>When the trader sells a token we hold, we sell our whole position in it straight away.</li>
@@ -49,9 +52,10 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;lett
 <li>Two losing round trips in a row: close everything and switch to the next-best weekly trader.</li>
 <li>Ranking comes from Kolscan's public weekly leaderboard, not the FOMO app, so the trader may differ from the original post.</li>
 <li>We poll every ~60 s, so copies lag the trader; memecoin prices move within seconds.</li>
-<li>No fees, slippage or price impact modelled, so real results would be worse.</li>
+<li id="costrule">Costs (from 25 Oct, on every new fill): 1% swap fee per side plus slippage = 1% base + a liquidity tier from DexScreener pool liquidity (L &ge; $500k +0; $100k&ndash;500k +0.5%; $25k&ndash;100k +1%; $5k&ndash;25k +2.5%; under $5k or unknown +5%) + 2 &times; trade size / L, capped at 15%. Fills before then had no costs. Real costs (priority fees, MEV, failed swaps) could still be worse.</li>
 <li>The free public Solana feed can lag or miss trades on very busy wallets; trades quoted in tokens other than SOL, USDC or USDT are skipped.</li>
-<li>Prices from Jupiter (fallback DexScreener) are fetched on the box at each push (about every minute). This page re-checks every 60 s; GitHub may take a few minutes to serve a new copy.</li>
+<li>The Kolscan weekly leaderboard is re-read daily and at every switch, so a switch goes to the current next-best trader not yet dropped.</li>
+<li>Prices from Jupiter (fallback DexScreener) are fetched on the box at each push (at most every 5 minutes, to stay within GitHub Pages limits). This page re-checks every 60 s.</li>
 </ul></div>
 <div class="sub" style="text-align:center;margin:18px 0" id="foot"></div>
 </div>
@@ -66,28 +70,35 @@ const qty=x=>Number(x||0).toLocaleString("en-GB",{maximumFractionDigits:2});
 const cls=x=>Number(x)>0?"pos":Number(x)<0?"neg":"";
 function table(cols,rows){if(!rows.length)return '<div class="empty">None yet.</div>';
  return "<table><thead><tr>"+cols.map(c=>`<th class="${c[1]||""}">${E(c[0])}</th>`).join("")+"</tr></thead><tbody>"+rows.map(r=>"<tr>"+r.map((v,i)=>`<td class="${cols[i][1]||""}">${v}</td>`).join("")+"</tr>").join("")+"</tbody></table>";}
-function hms(s){if(s==null)return "?";const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return `${h}h ${m}m`;}
+function hms(s){if(s==null)return "?";const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?`${d}d `:"")+`${h}h ${m}m`;}
 function chart(pts,start){if(pts.length<2)return '<div class="empty">Not enough data yet.</div>';
  const W=900,H=240,P=40,vals=pts.map(p=>p[1]).concat([start]);let lo=Math.min(...vals),hi=Math.max(...vals);if(hi-lo<1){hi+=1;lo=Math.max(0,lo-1);}
  const x=i=>P+i*(W-P-10)/(pts.length-1),y=v=>H-25-(v-lo)/(hi-lo)*(H-45);
  const d=pts.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+","+y(p[1]).toFixed(1)).join("");const last=pts[pts.length-1][1];
  const col=last>start?"#3fb950":last<start?"#f85149":"#58a6ff";let lab="";const n=Math.min(5,pts.length-1);
- for(let k=0;k<=n;k++){const i=Math.round(k*(pts.length-1)/n);lab+=`<text x="${x(i)}" y="${H-6}" fill="#8b949e" font-size="11" text-anchor="middle">${E(String(pts[i][0]).slice(11,16))}</text>`}
+ for(let k=0;k<=n;k++){const i=Math.round(k*(pts.length-1)/n);lab+=`<text x="${x(i)}" y="${H-6}" fill="#8b949e" font-size="11" text-anchor="middle">${E(String(pts[i][0]).slice(5,16))}</text>`}
  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Balance over time"><line x1="${P}" x2="${W-10}" y1="${y(start)}" y2="${y(start)}" stroke="#d29922" stroke-dasharray="4 4"/>
  <text x="${W-12}" y="${y(start)-5}" fill="#d29922" font-size="11" text-anchor="end">$${start} start</text>
  <text x="4" y="${y(hi)+4}" fill="#8b949e" font-size="11">${money(hi)}</text><text x="4" y="${y(lo)+4}" fill="#8b949e" font-size="11">${money(lo)}</text>
- <path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${lab}</svg><div class="sub">Times in UK time. Balance = cash + tokens valued at the sim's last price.</div>`;}
+ <path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>${lab}</svg><div class="sub">Times in UK time (MM-DD HH:MM). Balance = cash + tokens valued at the sim's last price. Per-minute points for the last 48 h, hourly before that.</div>`;}
 function render(s){
  const st=s.status,f=s.following,ret=(s.equity/s.start_cash-1)*100;
  const ago=s.pushed_ts?Math.max(0,Math.round(Date.now()/1000-s.pushed_ts)):null;const left=s.end_ts?Math.max(0,Math.round(s.end_ts-Date.now()/1000)):st.seconds_remaining;
  const alive=st.finished?'<span class="dot" style="background:#8b949e"></span><b>Finished</b>':st.sim_alive?'<span class="dot" style="background:#3fb950"></span><b>Sim running</b> (at last push)':'<span class="dot" style="background:#f85149"></span><b>Sim not running</b>';
  $("status").innerHTML=`<span>${alive}</span><span>Last poll: <b>${E(st.last_poll_bst)}</b></span><span>Polls: <b>${E(st.polls)}</b></span><span>Data last pushed: <b>${E(s.pushed_uk)}</b>${ago!=null?" ("+(ago<90?ago+" s":Math.round(ago/60)+" min")+" ago)":""}</span><span>Time left: <b>${st.finished?"0h 0m":hms(left)}</b> (ends ${E(st.ends_local)})</span><span>Started: ${E(st.launched_bst)}</span>`;
+ const M=s.month||{},cp=s.checkpoint_24h,c=s.costs||{},wr=s.win_rate||{};
+ if(s.month){const el=s.end_ts?Math.min(M.days_total,Math.max(0,(Date.now()/1000-M.launched_ts)/86400)):M.days_elapsed;const pc=Math.min(100,el/M.days_total*100);
+  $("month").innerHTML=`<div class="kv"><div>Day</div><div><b>${Math.min(Math.floor(el)+1,Math.ceil(M.days_total))}</b> of ${E(Math.round(M.days_total))} (${el.toFixed(1)} days elapsed, ${Math.max(0,M.days_total-el).toFixed(1)} remaining)</div><div>Ends</div><div>${E(M.ends_uk)}</div>
+  <div>24-hour checkpoint</div><div>${cp?`<b class="${cls(cp.equity-s.start_cash)}">${money(cp.equity)}</b> (${cp.ret_pct>0?"+":""}${E(cp.ret_pct)}%) at ${E(cp.time_bst)}: ${E(cp.round_trips)} round trips (${E(cp.wins)} wins / ${E(cp.losses)} losses), ${E(cp.switches)} switches, following ${E(cp.following)}`:`due ${E(s.checkpoint_due_uk)}`}</div>
+  <div>Win rate</div><div>${wr.pct!=null?`<b>${E(wr.pct)}%</b> (${E(wr.wins)} of ${E(wr.round_trips)} round trips)`:"no completed round trips yet"}</div>
+  <div>Costs paid</div><div><b>${money(c.total_usd)}</b> (fees ${money(c.fees_usd)}, slippage ${money(c.slippage_usd)}) over ${E(c.fills_costed)} fills since ${E(c.since_bst)}</div></div><div class="bar"><div style="width:${pc.toFixed(1)}%"></div></div>`;
+  $("daily").innerHTML=table([["Day"],["Open","n"],["Close","n"],["P&L","n"],["P&L %","n"],["Realised","n"],["Round trips","n"],["Fills","n"],["Costs","n"]],(s.daily||[]).map(r=>[E(r.label)+(r.partial?' <span class="sub">(so far)</span>':""),money(r.open),money(r.close),`<span class="${cls(r.pnl)}">${sm(r.pnl)}</span>`,r.pnl_pct==null?"-":`<span class="${cls(r.pnl)}">${r.pnl_pct>0?"+":""}${r.pnl_pct.toFixed(1)}%</span>`,r.round_trips?`<span class="${cls(r.realised)}">${sm(r.realised)}</span>`:"-",`${E(r.round_trips)}${r.round_trips?` (${E(r.wins)}W)`:""}`,E(r.fills),r.costs?money(r.costs):"-"]));}
  if(s.holdings.length){$("holdings").innerHTML='<div class="tw">'+table([["Token"],["Qty","n"],["Avg entry","n"],["Current price","n"],["Value","n"],["Unrealised P&L","n"],["Copied from"],["Bought (UK)"]],
   s.holdings.map(h=>[`<a href="${SAFE(h.url)}" target="_blank" rel="noopener noreferrer"><b>${E(h.symbol)}</b></a> <span class="sub">${E(h.name)}</span>`,qty(h.qty),px(h.avg_entry),`${px(h.price)} <span class="sub">${E(h.price_source)}</span>`,money(h.value),
    `<span class="${cls(h.upnl)}">${sm(h.upnl)} (${(h.upnl_pct>0?"+":"")+h.upnl_pct.toFixed(1)}%)</span>`,E(h.trader),E(h.bought_bst)]))+"</div>";}
  else $("holdings").innerHTML=`<div class="cash">In cash: <b>${money(s.cash)}</b>, waiting for <b>${E(f.name)}</b> to buy.</div>`;
  $("hupd").textContent="Last updated: "+s.generated_bst;
- $("metrics").innerHTML=[[money(s.equity),"Balance now",cls(ret)],[(ret>0?"+":"")+ret.toFixed(2)+"%","vs $"+s.start_cash+" start",cls(ret)],[money(s.cash),"Cash",""],[money(s.positions_value),"Tokens (live price)",""],[String(s.trades.length),"Paper fills",""]]
+ $("metrics").innerHTML=[[money(s.equity),"Balance now",cls(ret)],[(ret>0?"+":"")+ret.toFixed(2)+"%","vs $"+s.start_cash+" start",cls(ret)],[money(s.cash),"Cash",""],[money(s.positions_value),"Tokens (live price)",""],[String(s.trades.length),"Paper fills",""],[wr.pct!=null?wr.pct+"%":"n/a","Win rate (round trips)",""],[money(c.total_usd),"Fees + slippage paid","neg"]]
   .map(m=>`<div class="m"><div class="v ${m[2]}">${E(m[0])}</div><div class="l">${E(m[1])}</div></div>`).join("");
  $("chart").innerHTML=chart(s.equity_points,s.start_cash);
  const wl=f.kolscan_wins!=null?`${f.kolscan_wins} wins / ${f.kolscan_losses} losses`:"n/a";
@@ -96,14 +107,15 @@ function render(s){
  <div>Kolscan weekly profit</div><div>${E(Number(f.profit_sol).toLocaleString("en-GB"))} SOL</div><div>Kolscan weekly W/L</div><div>${E(wl)}</div>
  <div>Wallet</div><div class="mono">${E(f.wallet)}</div><div>Following since</div><div>${E(f.since)}</div>
  <div>Our results with them</div><div>${E(f.our_round_trips)} round trips, <span class="${cls(f.our_pnl)}">${sm(f.our_pnl)}</span>; ${E(f.consec_losses)} of 2 consecutive losses before switching</div>
+ <div>Leaderboard</div><div>Kolscan weekly list last read ${E(s.leaderboard_at)} (daily refresh)${s.leaderboard_refreshes&&s.leaderboard_refreshes[0]&&s.leaderboard_refreshes[0].next?`; next undropped trader: ${E(s.leaderboard_refreshes[0].next)}`:""}</div>
  <div>Links</div><div><a href="${SAFE(f.kolscan_url)}" target="_blank" rel="noopener noreferrer">Kolscan profile</a> · <a href="${SAFE(f.solscan_url)}" target="_blank" rel="noopener noreferrer">Solscan wallet</a></div></div>`;
  $("switches").innerHTML=table([["Time (UK)"],["Now following"],["Weekly rank"],["Reason"]],s.switches.map(w=>[E(w.time_bst),E(w.to),"#"+E(w.rank),E(w.reason)]));
  $("rtsum").textContent=`${s.round_trips.length} completed: ${s.rt_wins} wins, ${s.rt_losses} losses`;
  $("rts").innerHTML=table([["Result"],["Token"],["Opened (UK)"],["Closed (UK)"],["Cost","n"],["Proceeds","n"],["P&L","n"]],s.round_trips.map(r=>[`<span class="pill ${r.pnl_usd>0?"pw":"pl"}">${r.pnl_usd>0?"WIN":"LOSS"}</span>`,E(r.token),E(r.opened_bst),E(r.closed_bst),money(r.cost_usd),money(r.proceeds_usd),`<span class="${cls(r.pnl_usd)}">${sm(r.pnl_usd)}</span>`]));
- $("trades").innerHTML=table([["Time (UK)"],["Side"],["Token"],["Qty","n"],["Price","n"],["USD","n"],["Trader"],["Trader tx (UK)"],["Delay","n"],["Price source"],["P&L","n"],["Reason"]],
-  s.trades.map(t=>[E(t.time_bst),`<span class="${t.side==="BUY"?"pos":"neg"}">${E(t.side)}</span>`,`<a href="https://dexscreener.com/solana/${encodeURIComponent(t.mint)}" target="_blank" rel="noopener noreferrer">${E(t.token)}</a>`,qty(t.qty),px(t.price_usd),money(t.usd),E(t.trader),E(t.trader_tx_time_bst),t.delay_s?E(t.delay_s)+" s":"-",E(t.price_source),t.pnl_usd?`<span class="${cls(t.pnl_usd)}">${sm(t.pnl_usd)}</span>`:"-",E(t.reason)]));
- $("foot").textContent=`Data computed on the box and pushed ${s.pushed_uk}. This page re-checks every 60 s. Read-only static view.`;
- const stale=!st.finished&&ago!=null&&ago>600;$("err").style.display=stale?"block":"none";if(stale)$("err").textContent="Data is more than 10 minutes old: the publisher on the box may be down or GitHub Pages is slow to rebuild.";
+ $("trades").innerHTML=table([["Time (UK)"],["Side"],["Token"],["Qty","n"],["Price","n"],["USD","n"],["Trader"],["Trader tx (UK)"],["Delay","n"],["Price source"],["Fee + slippage","n"],["P&L","n"],["Reason"]],
+  s.trades.map(t=>[E(t.time_bst),`<span class="${t.side==="BUY"?"pos":"neg"}">${E(t.side)}</span>`,`<a href="https://dexscreener.com/solana/${encodeURIComponent(t.mint)}" target="_blank" rel="noopener noreferrer">${E(t.token)}</a>`,qty(t.qty),px(t.price_usd),money(t.usd),E(t.trader),E(t.trader_tx_time_bst),t.delay_s?E(t.delay_s)+" s":"-",E(t.price_source),t.fee_usd!==""&&t.fee_usd!=null?`${money(Number(t.fee_usd)+Number(t.slippage_usd))} <span class="sub">(${E(t.slippage_pct)}% slip)</span>`:"-",t.pnl_usd?`<span class="${cls(t.pnl_usd)}">${sm(t.pnl_usd)}</span>`:"-",E(t.reason)]));
+ $("foot").textContent=`Data computed on the box and pushed ${s.pushed_uk}. Pushed at most every 5 minutes; this page re-checks every 60 s. Read-only static view.`;
+ const stale=!st.finished&&ago!=null&&ago>1200;$("err").style.display=stale?"block":"none";if(stale)$("err").textContent="Data is more than 20 minutes old: the publisher on the box may be down or GitHub Pages is slow to rebuild.";
 }
 const RAW="https://raw.githubusercontent.com/alexanderirvine7-sys/copytrade-sim/main/data.json";
 let cur=null;
