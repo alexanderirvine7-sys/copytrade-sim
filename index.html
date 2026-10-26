@@ -24,8 +24,12 @@ ul{padding-left:1.2em}li{margin:.25em 0}
 <div class="card"><h2>Tracker status</h2><div id="status" class="mut">Loading…</div></div>
 
 <div class="card"><h2>Results so far vs the backtest</h2>
-<p class="mut" style="margin-top:0">Each paper trade is 0.5 SOL. Results are after fees, price impact and tips. "Backtest" is what the same rules made on 34 past launches.</p>
-<div class="grid" id="totals"></div></div>
+<p class="mut" style="margin-top:0">Each paper trade is 0.5 SOL. Results are after fees, price impact and tips. These totals count only coins whose funding was traced to the operator. "Backtest" is what the same rules made on 34 past launches.</p>
+<div class="grid" id="totals"></div>
+<h3 style="margin-bottom:4px">Fingerprint-only coins (kept separate, not in the totals above)</h3>
+<p class="mut" style="margin-top:0">Coins that match the operator's exact launch kit but whose funding could not be traced to him. They are still paper-traded, but they may not be his.</p>
+<div class="grid" id="fptotals"></div>
+<div id="skips" class="mut" style="margin-top:8px"></div></div>
 
 <div class="card"><h2>Tracked launches</h2><div class="wrap" id="launches"></div></div>
 
@@ -43,7 +47,8 @@ ul{padding-left:1.2em}li{margin:.25em 0}
 <li>It follows each coin's price for 2 hours to record the peak, how long it took to get there, and when it crashed.</li>
 <li>The totals are compared with the backtest. The backtest is small (34 coins from one operator) and its worst trades lost about 100%, so a few launches can swing the numbers a lot.</li>
 <li>Coins that look similar but aren't from this operator are counted as "lookalikes" and not traded.</li>
-<li>This page refreshes itself every minute; the data behind it is updated about every 5 minutes. All times are UK time.</li>
+<li>This page refreshes itself every minute; the data behind it is updated about every 5 minutes. All times are UK clock time (GMT since 25 Oct; BST before).</li>
+<li>Prices: each paper buy and sell uses the pool's own price and depth at that moment, read from the blockchain; the 1.25% fee is charged once on the buy and once on the sell.</li>
 </ul></div>
 <p class="mut" id="foot"></p>
 </main>
@@ -65,8 +70,16 @@ function status(){
 function totals(){
   $('totals').innerHTML=['D1','D2','Q1'].map(s=>{const t=D.totals[s]||{},b=D.benchmark[s]||{};
   const live=t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)}<br>average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>';
-  return `<div class="setup"><b>${s}</b><div>${live}</div><div class="mut" style="margin-top:6px">Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%</div></div>`}).join('')+
+  const bn=s==='Q1'?'<br>Q1 backtest = our replay of the research data (the earlier 70% / +22% / +31% included a data error on 22 Sep).':'';
+  return `<div class="setup"><b>${s}</b><div>${live}</div><div class="mut" style="margin-top:6px">Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%${bn}</div></div>`}).join('')+
   '<p class="mut" style="grid-column:1/-1;margin:0">"Average" is the mean return per trade; "middle" is the median (half did better, half worse).</p>';
+}
+function fptotals(){
+  const F=D.fingerprint_totals||{};
+  $('fptotals').innerHTML=['D1','D2','Q1'].map(s=>{const t=F[s]||{};return `<div class="setup"><b>${s}</b> <span class="y">fingerprint-only</span><div>${t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)} · average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>'}</div></div>`}).join('');
+  const S=D.skips||{},m=S.main||{},f=S.fingerprint_only||{},L=D.skip_log||[];
+  $('skips').innerHTML=`Skipped setups (logged with reason) · confirmed coins: D1 ${m.D1||0}, D2 ${m.D2||0}, Q1 ${m.Q1||0} · fingerprint-only: D1 ${f.D1||0}, D2 ${f.D2||0}, Q1 ${f.Q1||0}`+
+   (L.length?'<ul>'+L.map(x=>`<li>${esc(x.symbol)} ${esc(x.setup)}${x.bucket==='fingerprint_only'?' (fingerprint-only)':''}: ${esc(x.reason)}${x.entry_target_uk?' · planned buy '+esc(x.entry_target_uk):''}</li>`).join('')+'</ul>':'');
 }
 function cell(x){
   if(x.status==='closed')return `<b class="${cls(x.net_pct)}">${pct(x.net_pct,1)}</b><br><span class="mut">${x.entry_uk} → ${x.exit_uk}</span>${x.flag?`<br><span class="y">${esc(x.flag)}</span>`:''}`;
@@ -79,7 +92,7 @@ function launches(){
   if(!L.length){$('launches').innerHTML='<div class="empty">No operator launches yet. The tracker is watching; when the operator launches a coin it will appear here within a few minutes.</div>';$('chartcard').style.display='none';return;}
   $('launches').innerHTML=`<table><tr><th>Coin</th><th>Launched (UK)</th><th>D1</th><th>D2</th><th>Q1</th><th>Peak</th><th>Time to peak</th><th>Crash</th></tr>`+
   L.map(l=>`<tr><td><b>${esc(l.symbol)}</b><br><span class="mut">${esc(l.name)}</span><br><a href="${l.dex_url}" target="_blank" rel="noopener">chart</a> · <a href="${l.pump_url}" target="_blank" rel="noopener">pump.fun</a></td>
-  <td>${esc(l.launch_uk)}${l.stage!=='done'?'<br><span class="y">still tracking</span>':''}</td>
+  <td>${esc(l.launch_uk)}${l.bucket==='fingerprint_only'?'<br><span class="y">fingerprint-only (funding not traced; not in totals)</span>':''}${l.stage!=='done'?'<br><span class="y">still tracking</span>':''}</td>
   ${['D1','D2','Q1'].map(s=>`<td>${cell(l.setups[s])}</td>`).join('')}
   <td>${l.has_path?pct(l.peak_pct)+'<br><span class="mut">from first trade</span>':'<span class="mut">after 2 h</span>'}</td>
   <td>${l.peak_min!=null?Math.round(l.peak_min)+' min':'–'}</td>
@@ -92,7 +105,7 @@ function launches(){
    return `<div class="setup"><b>${esc(l.symbol)}</b> <span class="mut">${esc(l.launch_uk)} · log scale</span><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="${p.map(x=>X(x[0]+30)+','+Y(x[1])).join(' ')}"/>${dots}</svg></div>`}).join('');
 }
 async function load(){
-  try{const r=await fetch('data.json?t='+Date.now(),{cache:'no-store'});D=await r.json();totals();launches();status();
+  try{const r=await fetch('data.json?t='+Date.now(),{cache:'no-store'});D=await r.json();totals();fptotals();launches();status();
   $('foot').textContent='Page data published '+ukt(D.generated_t)+'.';}
   catch(e){$('status').innerHTML='<div class="warn">Could not load the tracker data. Try refreshing the page.</div>';}
 }
