@@ -24,7 +24,8 @@ ul{padding-left:1.2em}li{margin:.25em 0}
 <div class="card"><h2>Tracker status</h2><div id="status" class="mut">Loading…</div></div>
 
 <div class="card"><h2>Results so far vs the backtest</h2>
-<p class="mut" style="margin-top:0">Each paper trade is 0.5 SOL. Results are after fees, price impact and tips. These totals count only coins whose funding was traced to the operator. "Backtest" is what the same rules made on 34 past launches.</p>
+<p class="mut" style="margin-top:0">Each paper trade is shown as if it were a real 0.5 SOL trade: SOL put in, SOL got back and net profit or loss, after fees, price impact and tips (SOL figures from the tracker's ledger). Skipped trades count as 0 SOL staked. These totals count only coins whose funding was traced to the operator. "Backtest" is what the same rules made on 34 past launches.</p>
+<div id="overall"></div>
 <div class="grid" id="totals"></div>
 <h3 style="margin-bottom:4px">Fingerprint-only coins (kept separate, not in the totals above)</h3>
 <p class="mut" style="margin-top:0">Coins that match the operator's exact launch kit but whose funding could not be traced to him. They are still paper-traded, but they may not be his.</p>
@@ -61,6 +62,7 @@ const cls=v=>v==null?'':v>0?'g':v<0?'r':'';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ukt=t=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'});
 const SET=['D1','D2','Q1','D3','D3_slip10'],SN=s=>s==='D3_slip10'?'D3 +10% slip':s;
+const sol=(v,sg)=>v==null?'–':(sg&&v>0?'+':'')+v.toFixed(4)+' SOL';
 const ago=s=>s<90?Math.round(s)+' seconds':s<5400?Math.round(s/60)+' minutes':(s/3600).toFixed(1)+' hours';
 let D=null;
 function status(){
@@ -71,10 +73,12 @@ function status(){
   ${stale?`<div class="warn">Warning: the tracker hasn't checked in for over 45 minutes. It may have stopped, the computer it runs on may be paused, or the page updates may have stopped. Results below may be out of date.</div>`:''}`;
 }
 function totals(){
+  const O=D.sol_overall||{},ov=(t,lab)=>t?`<div class="setup"><b>${lab}</b><div>${t.trades} trades · put in <b>${sol(t.staked_sol)}</b> · got back <b>${sol(t.back_sol)}</b> · net <b class="${cls(t.net_sol)}">${sol(t.net_sol,1)}</b> · return on stake <b class="${cls(t.return_pct)}">${pct(t.return_pct,1)}</b></div></div>`:'';
+  $('overall').innerHTML=O.all?`<div class="grid" style="margin-bottom:10px">${ov(O.all,'All setups combined (incl. D3 +10% slip)')}${ov(O.excl_slip10,'All setups combined, without D3 +10% slip')}</div>`:'';
   $('totals').innerHTML=SET.map(s=>{const t=D.totals[s]||{},b=D.benchmark[s]||{};
   const live=t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)}<br>average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>';
   const bn=s==='Q1'?'<br>Q1 backtest = our replay of the research data (the earlier 70% / +22% / +31% included a data error on 22 Sep).':'';
-  return `<div class="setup"><b>${SN(s)}</b> <span class="mut">${esc((D.setup_labels||{})[s]||'')}</span><div>${live}</div><div class="mut" style="margin-top:6px">${b.win==null?'No backtest (new setup on 29 Oct).':`Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%`}${bn}</div></div>`}).join('')+
+  return `<div class="setup"><b>${SN(s)}</b> <span class="mut">${esc((D.setup_labels||{})[s]||'')}</span><div>${live}</div>${(()=>{const q=(D.sol_totals||{})[s];return q?`<div style="margin-top:6px">Put in <b>${sol(q.staked_sol)}</b> (${q.trades} × ${D.stake_sol} SOL${q.skipped?`, ${q.skipped} skipped = 0 SOL`:''}) · got back <b>${sol(q.back_sol)}</b><br>Net <b class="${cls(q.net_sol)}">${sol(q.net_sol,1)}</b> · return on stake <b class="${cls(q.return_pct)}">${pct(q.return_pct,1)}</b></div>`:''})()}<div class="mut" style="margin-top:6px">${b.win==null?'No backtest (new setup on 29 Oct).':`Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%`}${bn}</div></div>`}).join('')+
   '<p class="mut" style="grid-column:1/-1;margin:0">"Average" is the mean return per trade; "middle" is the median (half did better, half worse).</p>';
 }
 function fptotals(){
@@ -85,8 +89,8 @@ function fptotals(){
    (L.length?'<ul>'+L.map(x=>`<li>${esc(x.symbol)} ${esc(x.setup)}${x.bucket==='fingerprint_only'?' (fingerprint-only)':''}: ${esc(x.reason)}${x.entry_target_uk?' · planned buy '+esc(x.entry_target_uk):''}</li>`).join('')+'</ul>':'');
 }
 function cell(x){
-  if(x.status==='closed')return `<b class="${cls(x.net_pct)}">${pct(x.net_pct,1)}</b><br><span class="mut">${x.entry_uk} → ${x.exit_uk}</span>${x.flag?`<br><span class="y">${esc(x.flag)}</span>`:''}`;
-  if(x.status==='skipped')return `<span class="y">Skipped</span><br><span class="mut">${esc(x.skip_reason)}</span>`;
+  if(x.status==='closed')return `<b class="${cls(x.net_pct)}">${pct(x.net_pct,1)}</b>${x.sol_net!=null?`<br>in ${x.sol_in} → back ${x.sol_back.toFixed(4)}<br>net <b class="${cls(x.sol_net)}">${sol(x.sol_net,1)}</b>`:''}<br><span class="mut">${x.entry_uk} → ${x.exit_uk}</span>${x.flag?`<br><span class="y">${esc(x.flag)}</span>`:''}`;
+  if(x.status==='skipped')return `<span class="y">Skipped</span> <span class="mut">(0 SOL staked)</span><br><span class="mut">${esc(x.skip_reason)}</span>`;
   if(x.status==='open')return `Holding<br><span class="mut">bought ${x.entry_uk}</span>`;
   return '<span class="mut">Waiting</span>';
 }
