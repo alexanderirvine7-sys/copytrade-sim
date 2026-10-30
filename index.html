@@ -39,15 +39,17 @@ ul{padding-left:1.2em}li{margin:.25em 0}
 
 <div class="card"><h2>How it works</h2><ul>
 <li>A program watches pump.fun for new coins launched by one particular operator (wallet "EtCdHc" and the wallets that fund it).</li>
-<li>When it spots one, it pretends to buy 0.5 SOL worth using three fixed rules, using real trade prices from the blockchain:
+<li>When it spots one, it pretends to buy 0.5 SOL worth using five fixed rules, using real trade prices from the blockchain:
 <ul><li><b>D1</b>: buy 15 minutes after launch, sell 20 minutes later.</li>
 <li><b>D2</b>: buy 10 minutes after launch, sell 30 minutes later.</li>
-<li><b>Q1</b>: from 5 minutes after launch, wait until the operator and his wallets have sold less than 1 SOL in the last 2 minutes, then buy; sell 20 minutes later. If that never happens within the first hour, Q1 skips the coin.</li></ul></li>
+<li><b>Q1</b>: from 5 minutes after launch, wait until the operator and his wallets have sold less than 1 SOL in the last 2 minutes, then buy; sell 20 minutes later. If that never happens within the first hour, Q1 skips the coin.</li>
+<li><b>D3</b>: buy 15 minutes after launch, sell 45 minutes after launch (30-minute hold). New on 29 Oct, so there is no backtest to compare with.</li>
+<li><b>D3 +10% slip</b>: the same trade as D3, but assuming an extra 10% slippage on both the buy and the sell (a "what if prices are worse" check).</li></ul></li>
 <li>A setup is also skipped if nobody traded the coin within 2 minutes of the planned buy time.</li>
 <li>It follows each coin's price for 2 hours to record the peak, how long it took to get there, and when it crashed.</li>
 <li>The totals are compared with the backtest. The backtest is small (34 coins from one operator) and its worst trades lost about 100%, so a few launches can swing the numbers a lot.</li>
 <li>Coins that look similar but aren't from this operator are counted as "lookalikes" and not traded.</li>
-<li>This page refreshes itself every minute; the data behind it is updated about every 5 minutes. All times are UK clock time (GMT since 25 Oct; BST before).</li>
+<li>This page refreshes itself every minute; the data behind it is updated within about 5 minutes of any change, and at least every 30 minutes. All times are UK clock time (GMT since 25 Oct; BST before).</li>
 <li>Prices: each paper buy and sell uses the pool's own price and depth at that moment, read from the blockchain; the 1.25% fee is charged once on the buy and once on the sell.</li>
 </ul></div>
 <p class="mut" id="foot"></p>
@@ -58,27 +60,28 @@ const pct=(v,d=0)=>v==null?'–':(v>0?'+':'')+v.toFixed(d)+'%';
 const cls=v=>v==null?'':v>0?'g':v<0?'r':'';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ukt=t=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'});
+const SET=['D1','D2','Q1','D3','D3_slip10'],SN=s=>s==='D3_slip10'?'D3 +10% slip':s;
 const ago=s=>s<90?Math.round(s)+' seconds':s<5400?Math.round(s/60)+' minutes':(s/3600).toFixed(1)+' hours';
 let D=null;
 function status(){
-  if(!D)return;const age=Date.now()/1000-D.heartbeat_t,stale=age>900;
+  if(!D)return;const age=Date.now()/1000-D.heartbeat_t,stale=age>2700;
   $('status').innerHTML=`<div><span class="dot" style="background:${stale?'var(--r)':'var(--g)'}"></span><b>${stale?'Not responding':'Running'}</b></div>
   <div>Last checked: <b>${ukt(D.heartbeat_t)}</b> <span class="mut">(${ago(age)} ago)</span></div>
   <div class="mut">Running since ${esc(D.started_uk)} · ${D.coins_checked} new coins checked · ${D.lookalikes} lookalikes ignored · ${D.launches.length} operator launches tracked</div>
-  ${stale?`<div class="warn">Warning: the tracker hasn't checked in for over 15 minutes. It may have stopped, the computer it runs on may be paused, or the page updates may have stopped. Results below may be out of date.</div>`:''}`;
+  ${stale?`<div class="warn">Warning: the tracker hasn't checked in for over 45 minutes. It may have stopped, the computer it runs on may be paused, or the page updates may have stopped. Results below may be out of date.</div>`:''}`;
 }
 function totals(){
-  $('totals').innerHTML=['D1','D2','Q1'].map(s=>{const t=D.totals[s]||{},b=D.benchmark[s]||{};
+  $('totals').innerHTML=SET.map(s=>{const t=D.totals[s]||{},b=D.benchmark[s]||{};
   const live=t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)}<br>average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>';
   const bn=s==='Q1'?'<br>Q1 backtest = our replay of the research data (the earlier 70% / +22% / +31% included a data error on 22 Sep).':'';
-  return `<div class="setup"><b>${s}</b><div>${live}</div><div class="mut" style="margin-top:6px">Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%${bn}</div></div>`}).join('')+
+  return `<div class="setup"><b>${SN(s)}</b> <span class="mut">${esc((D.setup_labels||{})[s]||'')}</span><div>${live}</div><div class="mut" style="margin-top:6px">${b.win==null?'No backtest (new setup on 29 Oct).':`Backtest: won ${b.win}% · average +${b.mean}% · middle +${b.median}% · worst about −100%`}${bn}</div></div>`}).join('')+
   '<p class="mut" style="grid-column:1/-1;margin:0">"Average" is the mean return per trade; "middle" is the median (half did better, half worse).</p>';
 }
 function fptotals(){
   const F=D.fingerprint_totals||{};
-  $('fptotals').innerHTML=['D1','D2','Q1'].map(s=>{const t=F[s]||{};return `<div class="setup"><b>${s}</b> <span class="y">fingerprint-only</span><div>${t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)} · average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>'}</div></div>`}).join('');
+  $('fptotals').innerHTML=SET.map(s=>{const t=F[s]||{};return `<div class="setup"><b>${SN(s)}</b> <span class="y">fingerprint-only</span><div>${t.n?`${t.n} trade${t.n>1?'s':''} · won ${pct(t.win_rate)} · average <span class="${cls(t.mean)}">${pct(t.mean,1)}</span> · middle <span class="${cls(t.median)}">${pct(t.median,1)}</span>`:'<span class="mut">No trades yet</span>'}</div></div>`}).join('');
   const S=D.skips||{},m=S.main||{},f=S.fingerprint_only||{},L=D.skip_log||[];
-  $('skips').innerHTML=`Skipped setups (logged with reason) · confirmed coins: D1 ${m.D1||0}, D2 ${m.D2||0}, Q1 ${m.Q1||0} · fingerprint-only: D1 ${f.D1||0}, D2 ${f.D2||0}, Q1 ${f.Q1||0}`+
+  $('skips').innerHTML=`Skipped setups (logged with reason) · confirmed coins: ${SET.map(s=>SN(s)+' '+(m[s]||0)).join(', ')} · fingerprint-only: ${SET.map(s=>SN(s)+' '+(f[s]||0)).join(', ')}`+
    (L.length?'<ul>'+L.map(x=>`<li>${esc(x.symbol)} ${esc(x.setup)}${x.bucket==='fingerprint_only'?' (fingerprint-only)':''}: ${esc(x.reason)}${x.entry_target_uk?' · planned buy '+esc(x.entry_target_uk):''}</li>`).join('')+'</ul>':'');
 }
 function cell(x){
@@ -90,10 +93,10 @@ function cell(x){
 function launches(){
   const L=D.launches;
   if(!L.length){$('launches').innerHTML='<div class="empty">No operator launches yet. The tracker is watching; when the operator launches a coin it will appear here within a few minutes.</div>';$('chartcard').style.display='none';return;}
-  $('launches').innerHTML=`<table><tr><th>Coin</th><th>Launched (UK)</th><th>D1</th><th>D2</th><th>Q1</th><th>Peak</th><th>Time to peak</th><th>Crash</th></tr>`+
+  $('launches').innerHTML=`<table><tr><th>Coin</th><th>Launched (UK)</th>${SET.map(s=>`<th>${SN(s)}</th>`).join('')}<th>Peak</th><th>Time to peak</th><th>Crash</th></tr>`+
   L.map(l=>`<tr><td><b>${esc(l.symbol)}</b><br><span class="mut">${esc(l.name)}</span><br><a href="${l.dex_url}" target="_blank" rel="noopener">chart</a> · <a href="${l.pump_url}" target="_blank" rel="noopener">pump.fun</a></td>
   <td>${esc(l.launch_uk)}${l.bucket==='fingerprint_only'?'<br><span class="y">fingerprint-only (funding not traced; not in totals)</span>':''}${l.stage!=='done'?'<br><span class="y">still tracking</span>':''}</td>
-  ${['D1','D2','Q1'].map(s=>`<td>${cell(l.setups[s])}</td>`).join('')}
+  ${SET.map(s=>`<td>${cell(l.setups[s]||{})}</td>`).join('')}
   <td>${l.has_path?pct(l.peak_pct)+'<br><span class="mut">from first trade</span>':'<span class="mut">after 2 h</span>'}</td>
   <td>${l.peak_min!=null?Math.round(l.peak_min)+' min':'–'}</td>
   <td class="wrapok">${!l.has_path?'<span class="mut">after 2 h</span>':l.crash_start_uk?`Started ${l.crash_start_uk} (${Math.round(l.crash_min_after_launch)} min after launch), halved in ${l.crash_minutes<1?Math.round(l.crash_minutes*60)+' s':Math.round(l.crash_minutes)+' min'}; lowest ${pct(l.depth_pct)} from peak${l.fast_rug?' <span class="r">(sudden dump)</span>':''}`:`No crash within 2 h (lowest ${pct(l.depth_pct)} from peak)`}</td></tr>`).join('')+'</table>';
@@ -101,7 +104,7 @@ function launches(){
   $('charts').innerHTML=C.map(l=>{const p=l.path,W=300,H=110,t0=p[0][0],t1=p[p.length-1][0]+60,lo=Math.log(Math.min(...p.map(x=>x[1]))),hi=Math.log(Math.max(...p.map(x=>x[1])));
    const X=t=>((t-t0)/(t1-t0||1))*W,Y=v=>H-5-((Math.log(v)-lo)/((hi-lo)||1))*(H-10);
    const near=t=>{let b=p[0];for(const x of p)if(x[0]<=t)b=x;return b[1]};
-   const dots=['D1','D2','Q1'].flatMap(s=>{const x=l.setups[s];return x.status==='closed'?[`<circle cx="${X(x.entry_t)}" cy="${Y(near(x.entry_t))}" r="3" fill="#3fb950"/>`,`<circle cx="${X(x.exit_t)}" cy="${Y(near(x.exit_t))}" r="3" fill="#f85149"/>`]:[]}).join('');
+   const dots=['D1','D2','Q1','D3'].flatMap(s=>{const x=l.setups[s]||{};return x.status==='closed'?[`<circle cx="${X(x.entry_t)}" cy="${Y(near(x.entry_t))}" r="3" fill="#3fb950"/>`,`<circle cx="${X(x.exit_t)}" cy="${Y(near(x.exit_t))}" r="3" fill="#f85149"/>`]:[]}).join('');
    return `<div class="setup"><b>${esc(l.symbol)}</b> <span class="mut">${esc(l.launch_uk)} · log scale</span><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="${p.map(x=>X(x[0]+30)+','+Y(x[1])).join(' ')}"/>${dots}</svg></div>`}).join('');
 }
 async function load(){
